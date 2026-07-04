@@ -15,7 +15,7 @@ NOSE       = 0
 
 def angle_between(a, b, c):
     ab = np.array([a[0] - b[0], a[1] - b[1]])
-    cb = np.array([c[0] - b[0], c[1] - b[1]])
+    cb = np.array([c[0] - b[0], c[1] - b[1]]) 
     cos_angle = np.dot(ab, cb) / (np.linalg.norm(ab) * np.linalg.norm(cb) + 1e-6)
     return np.degrees(np.arccos(np.clip(cos_angle, -1.0, 1.0)))
 

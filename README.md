@@ -1,6 +1,6 @@
 # Just Box 🥊
 
-Just Box is a real-time boxing training game built with Python, OpenCV, and MediaPipe Pose Landmarker. Inspired by games like *Just Dance*, players perform boxing punches that are recognized by computer vision to score points, build combos, and improve reaction time.
+Just Box is a real-time boxing training game built with Python, OpenCV, and MediaPipe Pose Landmarker. Inspired by *Just Dance*, players perform boxing punches that are recognized by computer vision and pose estimation to score points, build combos, and improve reaction time.
 
 ## Features
 

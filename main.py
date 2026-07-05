@@ -2,21 +2,20 @@ import cv2
 import time
 import random
 from game.detector import PoseDetector
-from game.moves import MOVES, DIFFICULTY
+from game.moves import MOVES
 from game.ui import (
-    draw_move_prompt, draw_score, draw_hit,
+    Target,
+    draw_move_prompt, draw_score,
     draw_countdown, draw_game_over, draw_round_timer,
 )
 
 # --- Settings ---
-CAMERA_INDEX   = 1
+CAMERA_INDEX   = 0
 FRAME_WIDTH    = 1280
 FRAME_HEIGHT   = 720
-ROUND_DURATION = 60       # seconds per round
-DIFFICULTY     = "medium" # easy / medium / hard
-TIME_PER_MOVE  = 2.0      # seconds to hit each move
-HIT_DISPLAY    = 0.6      # seconds to show HIT/MISS
-BASE_POINTS    = 100      # points per successful hit
+ROUND_DURATION = 60
+TIME_PER_MOVE  = 2.5
+BASE_POINTS    = 100
 
 def run_game():
     detector = PoseDetector()
@@ -25,20 +24,21 @@ def run_game():
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
 
     if not cap.isOpened():
-        print("Camera not found! Check CAMERA_INDEX in main.py")
+        print("Camera not found!")
         return
 
     high_score = 0
 
     while True:
-        # --- Countdown before round starts ---
+        # --- Countdown ---
         for i in range(3, 0, -1):
-            start = time.time()
-            while time.time() - start < 1.0:
+            deadline = time.time() + 1.0
+            while time.time() < deadline:
                 ret, frame = cap.read()
                 if not ret:
                     continue
                 frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
+                frame = cv2.flip(frame, 1)
                 draw_countdown(frame, i)
                 cv2.imshow('Just Box', frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -47,19 +47,22 @@ def run_game():
                     return
 
         # --- Round state ---
-        score         = 0
-        combo         = 0
-        round_start   = time.time()
-        move_start    = time.time()
-        current_move  = random.choice(list(MOVES.keys()))
-        hit_result    = None   # "hit" / "miss" / None
-        hit_time      = 0
-        last_detected = None
-        last_detect_time = 0
-        DEBOUNCE      = 0.4   # seconds between detections
+        score        = 0
+        combo        = 0
+        round_start  = time.time()
+        move_keys    = list(MOVES.keys())
 
-        print(f"\nRound started! You have {ROUND_DURATION} seconds.")
-        print(f"Current move: {MOVES[current_move]['name']}")
+        # pick first move
+        current_move = random.choice(move_keys)
+        target       = None
+        last_detected     = None
+        last_detect_time  = 0
+        DEBOUNCE          = 0.5
+
+        print(f"\nRound started! Move: {MOVES[current_move]['name']}")
+
+        def spawn_target(w, h):
+            return Target(current_move, TIME_PER_MOVE, w, h)
 
         while True:
             ret, frame = cap.read()
@@ -67,70 +70,64 @@ def run_game():
                 continue
 
             frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
+            frame = cv2.flip(frame, 1)  # mirror so it feels natural
             h, w, _ = frame.shape
             now = time.time()
 
-            # --- Time calculations ---
-            round_elapsed  = now - round_start
-            round_remaining = ROUND_DURATION - round_elapsed
-            move_elapsed   = now - move_start
-            move_remaining = TIME_PER_MOVE - move_elapsed
+            # spawn target if we don't have one
+            if target is None:
+                target = spawn_target(w, h)
+
+            round_remaining = ROUND_DURATION - (now - round_start)
 
             # --- Round over ---
             if round_remaining <= 0:
                 break
 
-            # --- Move timed out ---
-            if move_remaining <= 0 and hit_result is None:
-                hit_result = "miss"
-                hit_time   = now
-                combo      = 0
-                print(f"MISS — {MOVES[current_move]['name']}")
-
-            # --- After hit/miss display, pick next move ---
-            if hit_result is not None and now - hit_time > HIT_DISPLAY:
-                hit_result    = None
-                current_move  = random.choice(list(MOVES.keys()))
-                move_start    = now
+            # --- Target expired (missed) ---
+            if target.is_expired() and not target.hit:
+                combo = 0
+                current_move = random.choice(move_keys)
+                target = spawn_target(w, h)
                 last_detected = None
-                print(f"Next move: {MOVES[current_move]['name']}")
+                print(f"MISS — next: {MOVES[current_move]['name']}")
+
+            # --- After hit animation finishes, next move ---
+            if target.hit and target.is_expired():
+                current_move = random.choice(move_keys)
+                target = spawn_target(w, h)
+                last_detected = None
+                print(f"Next: {MOVES[current_move]['name']}")
 
             # --- Pose detection ---
             landmarks = detector.get_landmarks(frame)
-
-            if landmarks is not None and hit_result is None:
+            if landmarks is not None and not target.hit:
                 detector.draw_landmarks(frame, landmarks)
                 detected = detector.detect_move(landmarks, w, h)
 
-                # debounce — ignore repeated detections too quickly
                 if (detected is not None and
-                    detected != last_detected or
-                    now - last_detect_time > DEBOUNCE):
+                    (detected != last_detected or
+                     now - last_detect_time > DEBOUNCE)):
+
+                    last_detected    = detected
+                    last_detect_time = now
 
                     if detected == current_move:
-                        combo      += 1
-                        points      = BASE_POINTS * combo
-                        score      += points
-                        hit_result  = "hit"
-                        hit_time    = now
-                        last_detected = detected
-                        last_detect_time = now
-                        print(f"HIT! {MOVES[current_move]['name']} — +{points} pts (x{combo} combo)")
+                        combo  += 1
+                        points  = BASE_POINTS * combo
+                        score  += points
+                        target.trigger_hit()
+                        print(f"HIT! {MOVES[current_move]['name']} +{points}pts (x{combo})")
 
-            # --- Draw UI ---
-            draw_move_prompt(frame, current_move, max(move_remaining, 0), TIME_PER_MOVE)
+            # --- Draw everything ---
+            target.draw(frame)
+            time_left = max(TIME_PER_MOVE - (now - target.start_time), 0)
+            draw_move_prompt(frame, current_move, time_left, TIME_PER_MOVE)
             draw_score(frame, score, combo)
             draw_round_timer(frame, max(round_remaining, 0))
 
-            if hit_result == "hit":
-                draw_hit(frame, True)
-            elif hit_result == "miss":
-                draw_hit(frame, False)
-
             cv2.imshow('Just Box', frame)
-
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
+            if cv2.waitKey(1) & 0xFF == ord('q'):
                 cap.release()
                 cv2.destroyAllWindows()
                 return
@@ -144,6 +141,7 @@ def run_game():
             if not ret:
                 continue
             frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
+            frame = cv2.flip(frame, 1)
             draw_game_over(frame, score, high_score)
             cv2.imshow('Just Box', frame)
             key = cv2.waitKey(1) & 0xFF

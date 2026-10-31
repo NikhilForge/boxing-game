@@ -37,6 +37,8 @@ The game prompts combinations using standard boxing numbering (Orthodox stance):
 | **5** | **Lead Uppercut** | Left (Lead) | Upward vertical drive rising from chest to chin |
 | **6** | **Rear Uppercut** | Right (Rear) | Power upward scoop driving up beneath the chin |
 
+> 📖 **Want to master your form?** Check out the comprehensive **[Player & Trainer Guide](GUIDE.md)** for detailed stance breakdowns, technique tips, and motion-tracking mechanics.
+
 ---
 
 ## 🚀 Quickstart & How to Play

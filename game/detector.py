@@ -93,8 +93,13 @@ class PoseDetector:
         if shoulder_width < 0.01 or body_height < 0.01:
             return None
 
-        l_extended   = (lwx - lsx) / shoulder_width
-        r_extended   = (rsx - rwx) / shoulder_width
+        # In mirrored frame:
+        # Left wrist is to the left of left shoulder (lsx - lwx is positive)
+        # Right wrist is to the right of right shoulder (rwx - rsx is positive)
+        l_extended   = (lsx - lwx) / shoulder_width
+        r_extended   = (rwx - rsx) / shoulder_width
+        l_reach      = np.sqrt((lwx - lsx)**2 + (lwy - lsy)**2) / shoulder_width
+        r_reach      = np.sqrt((rwx - rsx)**2 + (rwy - rsy)**2) / shoulder_width
         l_wrist_high = (lsy - lwy) / body_height
         r_wrist_high = (rsy - rwy) / body_height
         l_wide       = abs(lwx - lsx) / shoulder_width
@@ -112,50 +117,56 @@ class PoseDetector:
         l_speed  = np.sqrt(ldx**2 + ldy**2)
         r_speed  = np.sqrt(rdx**2 + rdy**2)
 
-        MIN_SPEED = 0.006
+    def check_move(self, target_move, landmarks, w, h):
+        def px(i):
+            return landmarks[i][0] / w, landmarks[i][1] / h
 
-        # 1: Jab — left wrist forward, elbow straight, head height
-        if (l_extended > 0.45 and
-            l_elbow_angle > 130 and
-            l_at_head < 0.3 and
-            l_speed > MIN_SPEED):
-            return 1
+        lwx, lwy = px(L_WRIST)
+        rwx, rwy = px(R_WRIST)
+        lsx, lsy = px(L_SHOULDER)
+        rsx, rsy = px(R_SHOULDER)
+        lex, ley = px(L_ELBOW)
+        rex, rey = px(R_ELBOW)
 
-        # 2: Cross — right wrist forward, elbow straight, head height
-        if (r_extended > 0.45 and
-            r_elbow_angle > 130 and
-            r_at_head < 0.3 and
-            r_speed > MIN_SPEED):
-            return 2
+        if lwx == 0 or rwx == 0 or lsx == 0 or rsx == 0:
+            return False
 
-        # 5: Left Uppercut — wrist above shoulder, elbow bent, moving up
-        if (l_wrist_high > 0.3 and
-            l_elbow_angle < 110 and
-            l_wide < 0.4 and
-            ldy < -MIN_SPEED):
-            return 5
+        shoulder_width = max(0.10, abs(rsx - lsx))
+        shoulder_y = (lsy + rsy) / 2
+        body_height = max(0.25, abs(lsy - px(L_HIP)[1]))
 
-        # 6: Right Uppercut — wrist above shoulder, elbow bent, moving up
-        if (r_wrist_high > 0.3 and
-            r_elbow_angle < 110 and
-            r_wide < 0.4 and
-            rdy < -MIN_SPEED):
-            return 6
+        l_reach = np.sqrt((lwx - lsx)**2 + (lwy - lsy)**2) / shoulder_width
+        r_reach = np.sqrt((rwx - rsx)**2 + (rwy - rsy)**2) / shoulder_width
 
-        # 3: Left Hook — wrist wide, elbow bent, head height, not extended
-        if (l_wide > 0.7 and
-            l_elbow_angle < 120 and
-            l_at_head < 0.25 and
-            l_extended < 0.25 and
-            l_speed > MIN_SPEED):
-            return 3
+        l_elbow_angle = angle_between((lsx, lsy), (lex, ley), (lwx, lwy))
+        r_elbow_angle = angle_between((rsx, rsy), (rex, rey), (rwx, rwy))
 
-        # 4: Right Hook — wrist wide, elbow bent, head height, not extended
-        if (r_wide > 0.7 and
-            r_elbow_angle < 120 and
-            r_at_head < 0.25 and
-            r_extended < 0.25 and
-            r_speed > MIN_SPEED):
-            return 4
+        ldx, ldy = self.wrist_velocity(self.l_wrist_history)
+        rdx, rdy = self.wrist_velocity(self.r_wrist_history)
+        l_speed = np.sqrt(ldx**2 + ldy**2)
+        r_speed = np.sqrt(rdx**2 + rdy**2)
 
+        has_l_speed = l_speed > 0.0025
+        has_r_speed = r_speed > 0.0025
+        l_moving_up = ldy < -0.002
+        r_moving_up = rdy < -0.002
+
+        if target_move == 1:  # Jab (Left Straight)
+            return (l_reach > 0.50 and l_elbow_angle > 90) or (has_l_speed and l_reach > 0.40)
+        elif target_move == 2:  # Cross (Right Straight)
+            return (r_reach > 0.50 and r_elbow_angle > 90) or (has_r_speed and r_reach > 0.40)
+        elif target_move == 3:  # Lead Hook (Left Hook)
+            return (60 < l_elbow_angle < 145) and (has_l_speed or abs(ldx) > 0.002)
+        elif target_move == 4:  # Rear Hook (Right Hook)
+            return (60 < r_elbow_angle < 145) and (has_r_speed or abs(rdx) > 0.002)
+        elif target_move == 5:  # Lead Uppercut (Left Uppercut)
+            return (l_elbow_angle < 140) and (l_moving_up or (lwy < lsy + 0.15 * body_height and ldy < 0))
+        elif target_move == 6:  # Rear Uppercut (Right Uppercut)
+            return (r_elbow_angle < 140) and (r_moving_up or (rwy < rsy + 0.15 * body_height and rdy < 0))
+        return False
+
+    def detect_move(self, landmarks, w, h):
+        for m in range(1, 7):
+            if self.check_move(m, landmarks, w, h):
+                return m
         return None

@@ -27,10 +27,16 @@ def run_game():
         print("Camera not found!")
         return
 
+    print("Camera connected successfully. Initializing window...")
+    cv2.namedWindow('Just Box', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('Just Box', FRAME_WIDTH, FRAME_HEIGHT)
+    cv2.setWindowProperty('Just Box', cv2.WND_PROP_TOPMOST, 1)
+
     high_score = 0
 
     while True:
         # --- Countdown ---
+        print("Starting countdown...")
         for i in range(3, 0, -1):
             deadline = time.time() + 1.0
             while time.time() < deadline:
@@ -105,19 +111,33 @@ def run_game():
                 detector.draw_landmarks(frame, landmarks)
                 detected = detector.detect_move(landmarks, w, h)
 
-                if (detected is not None and
-                    (detected != last_detected or
-                     now - last_detect_time > DEBOUNCE)):
+                # Check if the striking hand hits the target circle directly
+                tx, ty = target.current_pos()
+                tr = target.current_radius() * 1.5
+                # 1, 3, 5 are Left Hand (wrist idx 9); 2, 4, 6 are Right Hand (wrist idx 10)
+                wrist_idx = 9 if current_move in [1, 3, 5] else 10
+                is_hit = False
 
-                    last_detected    = detected
+                if wrist_idx < len(landmarks):
+                    wx, wy = landmarks[wrist_idx][0], landmarks[wrist_idx][1]
+                    if wx > 0 and wy > 0:
+                        dist = np.hypot(wx - tx, wy - ty)
+                        wrist_hist = detector.l_wrist_history if wrist_idx == 9 else detector.r_wrist_history
+                        w_dx, w_dy = detector.wrist_velocity(wrist_hist)
+                        w_speed = np.hypot(w_dx, w_dy)
+                        if dist <= tr and w_speed > 0.0035:
+                            is_hit = True
+
+                if not is_hit and (detected == current_move or detector.check_move(current_move, landmarks, w, h)):
+                    is_hit = True
+
+                if is_hit and (now - last_detect_time > DEBOUNCE):
                     last_detect_time = now
-
-                    if detected == current_move:
-                        combo  += 1
-                        points  = BASE_POINTS * combo
-                        score  += points
-                        target.trigger_hit()
-                        print(f"HIT! {MOVES[current_move]['name']} +{points}pts (x{combo})")
+                    combo  += 1
+                    points  = BASE_POINTS * combo
+                    score  += points
+                    target.trigger_hit()
+                    print(f"HIT! {MOVES[current_move]['name']} +{points}pts (x{combo})")
 
             # --- Draw everything ---
             target.draw(frame)

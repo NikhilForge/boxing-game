@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1117">
+  <meta name="description" content="Just Box — Real-time motion-controlled boxing arcade game for Mobile and Desktop with interactive pose tracking and live scoreboard.">
+  <title>Just Box 🥊 — Motion Boxing Game</title>
+
+  <!-- Google Fonts: Orbitron (Arcade / Tech) & Outfit (Clean Body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+
+  <!-- MediaPipe Pose -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="app-container">
+    <!-- Camera Feed (Mirrored) & Render Canvas -->
+    <div id="video-wrapper">
+      <video id="webcam" playsinline autoplay muted></video>
+      <canvas id="game-canvas"></canvas>
+    </div>
+
+    <!-- Top Navigation / HUD Bar -->
+    <header id="game-hud" class="hud-layer hidden">
+      <div class="hud-group left">
+        <button id="btn-pause" class="hud-btn" title="Pause / Menu" aria-label="Pause Game">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16" rx="2"></rect>
+            <rect x="14" y="4" width="4" height="16" rx="2"></rect>
+          </svg>
+        </button>
+        <button id="btn-toggle-sound" class="hud-btn" title="Toggle Sound" aria-label="Toggle Sound">
+          <span id="sound-icon">🔊</span>
+        </button>
+        <button id="btn-open-leaderboard" class="hud-btn badge-btn" title="Scoreboard" aria-label="Open Leaderboard">
+          🏆 <span class="btn-text">Scores</span>
+        </button>
+      </div>
+
+      <!-- Center Timer -->
+      <div class="hud-timer-badge">
+        <span class="timer-label">ROUND</span>
+        <span id="round-timer-display" class="timer-value">01:00</span>
+      </div>
+
+      <!-- Right Score / Combo -->
+      <div class="hud-group right">
+        <div class="score-card">
+          <span class="score-label">SCORE</span>
+          <span id="score-display" class="score-value">0</span>
+        </div>
+        <div id="combo-badge" class="combo-card">
+          <span class="combo-label">COMBO</span>
+          <span id="combo-display" class="combo-value">0x</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Center Active Move Banner -->
+    <div id="move-banner" class="hud-layer hidden">
+      <div class="move-container">
+        <span id="move-number-badge" class="move-num">1</span>
+        <div class="move-details">
+          <h2 id="move-name-display" class="move-title">JAB</h2>
+          <span id="move-hint-display" class="move-hint">Lead Hand • Straight Strike</span>
+        </div>
+      </div>
+      <!-- Punch Time Left Bar -->
+      <div class="target-timer-track">
+        <div id="target-timer-fill" class="target-timer-progress"></div>
+      </div>
+    </div>
+
+    <!-- Big Center Countdown Overlay (3, 2, 1, FIGHT!) -->
+    <div id="countdown-overlay" class="overlay-modal hidden">
+      <div class="countdown-content">
+        <span id="countdown-text" class="countdown-digit">3</span>
+      </div>
+    </div>
+
+    <!-- Start / Welcome Screen Modal -->
+    <section id="welcome-modal" class="overlay-modal">
+      <div class="modal-card glass-panel">
+        <div class="brand-badge">MOTION BOXING</div>
+        <h1 class="game-logo">JUST BOX <span class="logo-accent">🥊</span></h1>
+        <p class="game-tagline">Throw real punches at moving targets using your phone or laptop camera.</p>
+
+        <!-- Device & Camera Status -->
+        <div id="camera-status-banner" class="status-banner">
+          <span class="status-dot pulsing"></span>
+          <span id="camera-status-text">Click "Start Game" to enable camera</span>
+        </div>
+
+        <!-- Mode Select -->
+        <div class="settings-group">
+          <label class="group-label">Round Duration</label>
+          <div class="btn-toggle-group" id="round-duration-select">
+            <button type="button" class="toggle-btn" data-duration="30">30s (Quick)</button>
+            <button type="button" class="toggle-btn active" data-duration="60">60s (Standard)</button>
+            <button type="button" class="toggle-btn" data-duration="90">90s (Pro)</button>
+          </div>
+        </div>
+
+        <!-- Difficulty -->
+        <div class="settings-group">
+          <label class="group-label">Difficulty</label>
+          <div class="btn-toggle-group" id="difficulty-select">
+            <button type="button" class="toggle-btn" data-time="3.0">Easy</button>
+            <button type="button" class="toggle-btn active" data-time="2.2">Medium</button>
+            <button type="button" class="toggle-btn" data-time="1.5">Hard</button>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="modal-actions">
+          <button id="btn-start-game" class="cta-btn primary-cta">
+            <span class="cta-icon">▶</span> START GAME
+          </button>
+          <button id="btn-show-scores-menu" class="cta-btn secondary-cta">
+            🏆 VIEW SCOREBOARD
+          </button>
+        </div>
+
+        <!-- Instructions Hint -->
+        <div class="tips-footer">
+          <span>💡 Stand ~5-7 ft away so your head, shoulders & arms are visible.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Leaderboard Modal Dialog -->
+    <dialog id="leaderboard-modal" class="custom-dialog">
+      <div class="dialog-card glass-panel">
+        <div class="dialog-header">
+          <div class="header-title-wrap">
+            <span class="dialog-icon">🏆</span>
+            <h2 class="dialog-title">HALL OF CHAMPIONS</h2>
+          </div>
+          <button id="btn-close-leaderboard" class="close-x-btn" aria-label="Close dialog">&times;</button>
+        </div>
+
+        <p class="dialog-subtitle">Top scores recorded across devices</p>
+
+        <!-- Scoreboard Table -->
+        <div class="table-scroll-container">
+          <table class="scoreboard-table">
+            <thead>
+              <tr>
+                <th class="col-rank">#</th>
+                <th class="col-fighter">Fighter</th>
+                <th class="col-score">Score</th>
+                <th class="col-combo">Max Combo</th>
+                <th class="col-date">Date</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-rows">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="dialog-footer">
+          <button id="btn-reset-scores" class="btn-outline-danger">Reset Scores</button>
+          <button id="btn-dismiss-leaderboard" class="cta-btn primary-cta small">Back to Game</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Game Over / Results Modal -->
+    <dialog id="gameover-modal" class="custom-dialog">
+      <div class="dialog-card glass-panel text-center">
+        <div class="victory-crown">🥊</div>
+        <h2 class="dialog-title large">ROUND OVER!</h2>
+        <p class="dialog-subtitle">Great workout! Here is how you performed:</p>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="stat-number" id="result-final-score">0</span>
+            <span class="stat-title">Final Score</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-number text-accent" id="result-max-combo">0x</span>
+            <span class="stat-title">Max Combo</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-number" id="result-hits-count">0</span>
+            <span class="stat-title">Punches Landed</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-number text-success" id="result-accuracy">0%</span>
+            <span class="stat-title">Accuracy</span>
+          </div>
+        </div>
+
+        <!-- High score name submit -->
+        <div id="save-score-section" class="save-score-container">
+          <label for="player-name-input" class="input-label">Save your score to the Leaderboard:</label>
+          <div class="input-row">
+            <input type="text" id="player-name-input" maxlength="15" placeholder="Enter Fighter Name" class="styled-input">
+            <button id="btn-save-score" class="cta-btn primary-cta">Save</button>
+          </div>
+          <span id="save-feedback" class="feedback-text hidden">✓ Score saved!</span>
+        </div>
+
+        <!-- Post Game Actions -->
+        <div class="modal-actions stacked">
+          <button id="btn-play-again" class="cta-btn primary-cta">
+            🔄 PLAY AGAIN
+          </button>
+          <button id="btn-view-board-gameover" class="cta-btn secondary-cta">
+            🏆 VIEW SCOREBOARD
+          </button>
+        </div>
+      </div>
+    </dialog>
+  </div>
+
+  <!-- Game Logic Scripts -->
+  <script src="app.js"></script>
+</body>
+</html>
